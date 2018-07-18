@@ -221,9 +221,9 @@ pathnames as well."
 (defun directory-p (name)
   "Is `name' the name of an existing directory."
   (let ((truename (file-exists-p name)))
-    (and truename (directory-pathname-p name))))
+    (and truename (directory-pathname-p truename))))
 
 (defun file-p (name)
   "Is `name' the name of an existing file, i.e. not a directory."
   (let ((truename (file-exists-p name)))
-    (and truename (file-pathname-p name))))
+    (and truename (file-pathname-p truename))))
