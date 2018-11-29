@@ -14,11 +14,19 @@
    :directory-p
    :file-p))
 
+; utils.lisp
+(defpackage :org.unclesniper.sloth.utils
+  (:use :common-lisp)
+  (:export
+   :unrecognized-symbolic-arg
+   :by-symbolic-arg))
+
 ; artifact.lisp
 (defpackage :org.unclesniper.sloth.artifact
   (:use
    :common-lisp
-   :com.gigamonkeys.pathnames)
+   :com.gigamonkeys.pathnames
+   :org.unclesniper.sloth.utils)
   (:export
    :*assume-all-out-of-date*
    :artifact
@@ -31,4 +39,6 @@
    :add-artifact-prerequisites
    :remove-artifact-prerequisites
    :artifact-known-up-to-date-p
-   :artifact-out-of-date-p))
+   :artifact-out-of-date-p
+   :dont-know-how-to-update
+   :dont-know-how-to-update-artifact))

@@ -86,8 +86,12 @@
                                 (and ptname (file-write-date ptname)))
                  when (and pwtime (> pwtime awtime)) return t))))))))
 
+(define-condition dont-know-how-to-update (error)
+  ((artifact :initarg :artifact :reader dont-know-how-to-update-artifact)))
+
 (defun dont-know-how-to-update (destination &rest sources)
-  nil)
+  (declare (ignore sources))
+  (error 'dont-know-how-to-update :artifact destination))
 
 (defun update-artifact (artifact &key always)
   (with-slots (path prerequisites updater) artifact
@@ -95,3 +99,7 @@
       (funcall (or updater #'dont-know-how-to-update)
                artifact
                (loop for prq being the hash-values of prerequisites collect prq)))))
+
+;(defun require-artifact (artifact &key (if-up-to-date :keep) (if-no-prerequisites :skip))
+;  foo
+;  )
