@@ -348,20 +348,20 @@
 (defvar *module-body-target-package* nil)
 
 (defmethod dir-module-load-scripts ((module dir-module))
-	(loop for script in (dir-module-scripts module) do
-		(if script
-			(handler-case
-				(let
-					(
-						(*currently-loading-module* module)
-						(*current-script-semantics* :module-body)
-						(*package* (or *module-body-target-package* (find-package '#:common-lisp-user)))
-					)
-					(load script))
-				(error (conditio)
-					(on-module-load-error *module-error-handler* module conditio)
-					(return-from dir-module-load-scripts)))))
-	t)
+	(let
+		(
+			(*currently-loading-module* module)
+			(*current-script-semantics* :module-body)
+			(*package* (or *module-body-target-package* (find-package '#:common-lisp-user)))
+		)
+		(loop for script in (dir-module-scripts module) do
+			(if script
+				(handler-case
+					(load script)
+					(error (conditio)
+						(on-module-load-error *module-error-handler* module conditio)
+						(return-from dir-module-load-scripts)))))
+		t))
 
 (defmethod enrich-module-with-header ((module dir-module) name dependencies bodies)
 	(if name
