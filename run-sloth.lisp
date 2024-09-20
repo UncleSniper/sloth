@@ -471,19 +471,22 @@
 
 ; flush scripts
 
-(loop for script in *preload-system-scripts* do
+(defun merge-scripts-default (conf-list default)
+	(or conf-list (and default (list default))))
+
+(loop for script in (merge-scripts-default *preload-system-scripts* *preload-system-default-script*) do
 	(load-script script t :preload-system))
 
-(loop for script in *preload-user-scripts* do
+(loop for script in (merge-scripts-default *preload-user-scripts* *preload-user-default-script*) do
 	(load-script script t :preload-user))
 
-(loop for script in *boot-system-scripts* do
+(loop for script in (merge-scripts-default *boot-system-scripts* *boot-system-default-script*) do
 	(load-script script t :boot-system))
 
 (loop for script in (reverse *boot-system-scripts-aux*) do
 	(load-script script t :boot-system-aux))
 
-(loop for script in *boot-user-scripts* do
+(loop for script in (merge-scripts-default *boot-user-scripts* *boot-user-default-script*) do
 	(load-script script t :boot-user))
 
 (loop for script in (reverse *boot-user-scripts-aux*) do
@@ -505,14 +508,19 @@
 
 ; finish initialization
 
-(loop for script in *init-system-scripts* do
-	(load-script script t :init-system))
+(let ((target-package (or *module-body-target-package* (find-package '#:usdo-sloth-user))))
+	(loop for script in (merge-scripts-default *init-system-scripts* *init-system-default-script*) do
+		(let ((*package* target-package))
+			(load-script script t :init-system)))
+	(loop for script in (reverse *init-system-scripts-aux*) do
+		(let ((*package* target-package))
+			(load-script script t :init-system-aux)))
+	(loop for script in (merge-scripts-default *init-user-scripts* *init-user-default-script*) do
+		(let ((*package* target-package))
+			(load-script script t :init-user)))
+	(loop for script in (reverse *init-user-scripts-aux*) do
+		(let ((*package* target-package))
+			(load-script script t :init-user-aux))))
 
-(loop for script in (reverse *init-system-scripts-aux*) do
-	(load-script script t :init-system-aux))
-
-(loop for script in *init-user-scripts* do
-	(load-script script t :init-user))
-
-(loop for script in (reverse *init-user-scripts-aux*) do
-	(load-script script t :init-user-aux))
+; Kickoff!
+(in-package #:usdo-sloth-user)
