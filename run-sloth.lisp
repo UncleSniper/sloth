@@ -327,7 +327,7 @@
 		(module-name-and-location module) (type-of module))))
 
 (defmacro defmodule (name &key depends-on scripts)
-	`(enrich-module-with-header *currently-loading-module* ,name ,depends-on ,scripts))
+	`(enrich-module-with-header *currently-loading-module* ',name ',depends-on ',scripts))
 
 ; dir-module
 (defclass dir-module (module-base header-enrichable-module) (
@@ -456,9 +456,9 @@
 (defgeneric found-module-header (scanner header))
 
 (defmethod scan-for-modules (scanner)
-	(loop for dir in (get-modules-dirs scanner)
-		for header in (and dir (mod-sloth-files-in-subdirs dir))
-		do (found-module-header scanner header)))
+	(loop for dir in (get-modules-dirs scanner) do
+		(loop for header in (and dir (mod-sloth-files-in-subdirs dir)) do
+			(found-module-header scanner header))))
 
 (defmethod get-modules-dirs (scanner) *modules-dirs*)
 
