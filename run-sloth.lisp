@@ -34,6 +34,23 @@
 			(if (< start (length haystack))
 				(list (subseq haystack start))))))
 
+; script conditions
+
+(define-condition script-load-failure (error)
+	(
+		(script
+			:initarg :script
+			:initform (error "no :script for script-load-failure")
+			:reader script-load-failure-script)
+		(cause :initarg :cause :initform nil :reader script-load-failure-cause)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio script-load-failure) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (script cause) conditio
+			(format out "script = '~A', cause = ~S" script cause))))
+
 ; loadage
 
 (defclass load-failure-handler () ())
@@ -53,7 +70,8 @@
 		(let ((*current-script-semantics* semantics))
 			(load path :if-does-not-exist (not allow-not-exist)))
 		(error (conditio)
-			(on-load-failure *load-failure-handler* path semantics conditio))))
+			(on-load-failure *load-failure-handler* path semantics
+				(make-condition 'script-load-failure :script path :cause conditio)))))
 
 ; prepare scripts
 
@@ -163,6 +181,101 @@
 ; our hacking claws into it deeply enough to control all
 ; of the resolution. We'll just roll our own here...
 
+; module conditions
+
+(define-condition module-header-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-header-error")
+			:reader module-header-error-module)
+		(cause :initarg :cause :initform nil :reader module-header-error-cause)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-header-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module cause) conditio
+			(format out "module = ~S, cause = ~S" module cause))))
+
+(define-condition module-missing-error (error)
+	(
+		(name
+			:initarg :name
+			:initform (error "no :name for module-missing-error")
+			:reader module-missing-error-name)
+		(parent :initarg :parent :initform nil :reader module-missing-error-parent)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-missing-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (name parent) conditio
+			(format out "name = '~A', parent = ~S" name parent))))
+
+(define-condition module-load-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-load-error")
+			:reader module-load-error-module)
+		(body-script :initarg :body :initform nil :reader module-load-error-body)
+		(cause :initarg :cause :initform nil :reader module-load-error-cause)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-load-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module body-script cause) conditio
+			(format out "module = ~S, body-script = ~S, cause = ~S" module body-script cause))))
+
+(define-condition module-shadow-warning (warning)
+	(
+		(old-module
+			:initarg :old-module
+			:initform (error "no :old-module for module-shadow-warning")
+			:reader module-shadow-warning-old-module)
+		(new-module
+			:initarg :new-module
+			:initform (error "no :new-module for module-shadow-warning")
+			:reader module-shadow-warning-new-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-shadow-warning) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (old-module new-module) conditio
+			(format out "old-module = ~S, new-module = ~S" old-module new-module))))
+
+(define-condition module-dependency-cycle-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-dependency-cycle-error")
+			:reader module-dependency-cycle-error-module)
+		(cycle :initarg :cycle :initform nil :reader module-dependency-cycle-error-cycle)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-dependency-cycle-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module cycle) conditio
+			(format out "module = ~S~@[, cycle = ~{~S~^ <==[requires]== ~}~]" module cycle))))
+
+(define-condition module-did-not-load-warning (warning)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-did-not-load-warning")
+			:reader module-did-not-load-warning-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-did-not-load-warning) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module) conditio
+			(format out "module = ~S" module))))
+
 ; module-error-handler
 (defclass module-error-handler () ())
 
@@ -174,7 +287,7 @@
 
 (defgeneric on-module-missing (handler modname parent))
 
-(defgeneric on-module-load-error (handler module conditio))
+(defgeneric on-module-load-error (handler module body-script conditio))
 
 (defgeneric on-module-shadow (handler old-module new-module))
 
@@ -215,23 +328,16 @@
 			name)))
 
 (defmethod on-module-missing (handler modname parent)
-	(error (format nil "Missing module '~A' required by ~A" modname (module-name-or-symbolic parent))))
+	(error 'module-missing-error :name modname :parent parent))
 
-(defmethod on-module-load-error (handler module conditio)
-	(error (format nil
-		"Fell back to condition ~S in on-module-load-error for module ~A, handler = ~S"
-		conditio (module-name-or-symbolic module) handler)))
+(defmethod on-module-load-error (handler module body-script conditio)
+	(error 'module-load-error :module module :body body-script :cause conditio))
 
 (defmethod on-module-shadow (handler old-module new-module)
-	(format *error-output*
-		"Warning: Ignoring module ~A, as it would shadow ~A~%"
-		(module-name-and-location new-module)
-		(module-name-and-location old-module)))
+	(warn 'module-shadow-warning :old-module old-module :new-module new-module))
 
 (defmethod on-module-did-not-load (handler module)
-	(format *error-output*
-		"Warning: Module ~A did not load, but configuration causes startup to continue, anyay.~%"
-		(module-name-and-location module)))
+	(warn 'module-did-not-load-warning :module module))
 
 ; registry
 (defvar *module-registry* (make-hash-table :test #'equal))
@@ -254,10 +360,7 @@
 (defparameter *currently-loading-module* nil)
 
 (defmethod on-module-dependency-cycle (handler module)
-	(error (format nil
-		"Circular dependency detected: Module ~A ultimately depends on itself: ~S"
-		(module-name-and-location module)
-		*modules-currently-loading*)))
+	(error 'module-dependency-cycle-error :module module :cycle *modules-currently-loading*))
 
 (defun try-load-module (module impl)
 	(if (not (typep module 'module))
@@ -365,7 +468,7 @@
 					)
 					(load script))
 				(error (conditio)
-					(on-module-load-error *module-error-handler* module conditio)
+					(on-module-load-error *module-error-handler* module script conditio)
 					(return-from dir-module-load-scripts)))))
 	t)
 
@@ -462,7 +565,8 @@
 			(let ((*currently-loading-module* module) (*current-script-semantics* :module-header))
 				(load full-header))
 			(error (conditio)
-				(on-module-header-error *module-error-handler* native-header conditio)))
+				(on-module-header-error *module-error-handler* native-header
+					(make-condition 'module-header-error :module module :cause conditio))))
 		module))
 
 (defvar *dir-module-factory* nil)
