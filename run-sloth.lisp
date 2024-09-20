@@ -521,19 +521,15 @@
 
 ; finish initialization
 
-(let ((target-package (or *module-body-target-package* (find-package '#:usdo-sloth-user))))
+(let ((*package* (or *module-body-target-package* (find-package '#:usdo-sloth-user))))
 	(loop for script in (merge-scripts-default *init-system-scripts* *init-system-default-script*) do
-		(let ((*package* target-package))
-			(load-script script t :init-system)))
+		(load-script script t :init-system))
 	(loop for script in (reverse *init-system-scripts-aux*) do
-		(let ((*package* target-package))
-			(load-script script t :init-system-aux)))
+		(load-script script t :init-system-aux))
 	(loop for script in (merge-scripts-default *init-user-scripts* *init-user-default-script*) do
-		(let ((*package* target-package))
-			(load-script script t :init-user)))
+		(load-script script t :init-user))
 	(loop for script in (reverse *init-user-scripts-aux*) do
-		(let ((*package* target-package))
-			(load-script script t :init-user-aux))))
+		(load-script script t :init-user-aux)))
 
 ; Kickoff!
 (in-package #:usdo-sloth-user)
