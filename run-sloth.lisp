@@ -313,8 +313,9 @@
 (defgeneric real-module-load (module))
 
 (defmethod module-load ((module module-base))
-	(if (and (not (slot-value module 'is-loaded)) (try-load-module module #'real-module-load))
-		(setf (slot-value module 'is-loaded) t)))
+	(cond
+		((slot-value module 'is-loaded) t)
+		((try-load-module module #'real-module-load) (setf (slot-value module 'is-loaded) t))))
 
 ; header-enrichable-module
 (defclass header-enrichable-module (module) ())
