@@ -284,6 +284,7 @@
 (defclass module-base (module) (
 	(name :initarg :name :initform (error "no :name for module-base") :reader module-name)
 	(is-loaded :initform nil)
+	(target-package :initarg :target-package :initform nil :accessor module-base-target-package)
 	(dependencies :initarg :dependencies :initform nil :accessor module-base-dependencies)
 	(should-load :initarg :should-load :initform t :accessor module-base-should-load)))
 
@@ -320,15 +321,15 @@
 ; header-enrichable-module
 (defclass header-enrichable-module (module) ())
 
-(defgeneric enrich-module-with-header (module name dependencies bodies))
+(defgeneric enrich-module-with-header (module name target-package dependencies bodies))
 
-(defmethod enrich-module-with-header ((module header-enrichable-module) name dependencies bodies)
+(defmethod enrich-module-with-header ((module header-enrichable-module) name target-package dependencies bodies)
 	(error (format nil
 		"Attempted to enrich module ~A with header info, but it does not define this (is a ~S)"
 		(module-name-and-location module) (type-of module))))
 
-(defmacro defmodule (name &key depends-on scripts)
-	`(enrich-module-with-header *currently-loading-module* ',name ',depends-on ',scripts))
+(defmacro defmodule (name &key target-package depends-on scripts)
+	`(enrich-module-with-header *currently-loading-module* ',name ',target-package ',depends-on ',scripts))
 
 ; dir-module
 (defclass dir-module (module-base header-enrichable-module) (
@@ -348,27 +349,38 @@
 (defvar *module-body-target-package* nil)
 
 (defmethod dir-module-load-scripts ((module dir-module))
-	(let
-		(
-			(*currently-loading-module* module)
-			(*current-script-semantics* :module-body)
-			(*package* (or *module-body-target-package* (find-package '#:common-lisp-user)))
-		)
-		(loop for script in (dir-module-scripts module) do
-			(if script
-				(handler-case
-					(load script)
-					(error (conditio)
-						(on-module-load-error *module-error-handler* module conditio)
-						(return-from dir-module-load-scripts)))))
-		t))
+	(loop for script in (dir-module-scripts module) do
+		(if script
+			(handler-case
+				(let
+					(
+						(*currently-loading-module* module)
+						(*current-script-semantics* :module-body)
+						(*package* (or
+							(let ((target-package (module-base-target-package module)))
+								(if target-package
+									(find-package target-package)))
+							*module-body-target-package*
+							(find-package '#:common-lisp-user)))
+					)
+					(load script))
+				(error (conditio)
+					(on-module-load-error *module-error-handler* module conditio)
+					(return-from dir-module-load-scripts)))))
+	t)
 
-(defmethod enrich-module-with-header ((module dir-module) name dependencies bodies)
+(defmethod enrich-module-with-header ((module dir-module) name target-package dependencies bodies)
 	(if name
 		(setf (slot-value module 'name) (cond
 			((stringp name) name)
 			((symbolp name) (string-downcase (symbol-name name)))
 			(t (error (format nil "Cannot use ~S as name for dir-module, must be string or symbol" name))))))
+	(if target-package
+		(setf (slot-value module 'target-package) (cond
+			((stringp target-package) (make-symbol (string-upcase target-package)))
+			((symbolp target-package) target-package)
+			(t (error (format nil
+				"Cannot use ~S as target-package for dir-module, must be string or symbol" target-package))))))
 	(loop for dep in dependencies do
 		(if dep (module-base-add-dependency module dep)))
 	(let ((dir (dir-module-dir module)))
@@ -525,3 +537,8 @@
 
 ; Kickoff!
 (in-package #:usdo-sloth-user)
+
+(unless (find-package '#:usdo-sloth-core)
+	(error "Module 'core' is missing"))
+
+(usdo-sloth-core:go-baby-go)
