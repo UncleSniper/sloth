@@ -399,6 +399,14 @@
 						(module-name-and-location module)))))))))
 	module)
 
+(defmethod print-object ((module dir-module) out)
+	(print-unreadable-object (module out :type t)
+		(with-slots (name is-loaded target-package dependencies should-load header dir)
+			module
+			(format out
+				"~A, is-loaded = ~S, target-package = ~S, dependencies = ~S, should-load = ~S, header = '~A', dir = '~A'"
+				name is-loaded target-package dependencies should-load header dir))))
+
 ; dir-module-creator
 (defclass dir-module-creator () ())
 
