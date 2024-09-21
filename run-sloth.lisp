@@ -339,12 +339,25 @@
 (defmethod on-module-did-not-load (handler module)
 	(warn 'module-did-not-load-warning :module module))
 
+; module-filter
+(defclass module-filter () ())
+
+(defgeneric filter-module (filter module)
+	(:method (filter module) module))
+
+(defvar *register-module-filter* nil)
+(defvar *found-module-header-filter* nil)
+
 ; registry
 (defvar *module-registry* (make-hash-table :test #'equal))
 
 (defun register-module (module)
 	(if (not (typep module 'module))
 		(error (format nil "Cannot register module ~S, as it is not a module" module)))
+	(let ((filtered (filter-module *register-module-filter* module)))
+		(if filtered
+			(setf module filtered)
+			(return-from register-module)))
 	(let ((name (module-name module)))
 		(if (not (stringp name))
 			(error (format nil "Module ~S has non-string name: ~S" module name)))
@@ -589,6 +602,8 @@
 
 (defmethod found-module-header (scanner header)
 	(let ((module (dir-module-from-header *dir-module-factory* header)))
+		(if module
+			(setf module (filter-module *found-module-header-filter* module)))
 		(if module
 			(register-module module))))
 
