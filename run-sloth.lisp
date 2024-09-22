@@ -51,8 +51,43 @@
 		(with-slots (script cause) conditio
 			(format out "script = '~A', cause = ~S" script cause))))
 
+; misc conditions
+
+(define-condition missing-delegate-error (error)
+	(
+		(abstraction
+			:initarg :abstraction
+			:initform (error "no :abstraction for missing-delegate-error")
+			:reader missing-delegate-error-abstraction)
+		(wrapper
+			:initarg :wrapper
+			:initform (error "no :wrapper for missing-delegate-error")
+			:reader missing-delegate-error-wrapper)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio missing-delegate-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (abstraction wrapper) conditio
+			(format out "abstraction = ~S, wrapper = ~S" abstraction wrapper))))
+
 ; loadage
 
+; delegator
+(defclass delegator () (
+	(delegate :initarg :delegate :initform nil :accessor delegator-delegate)
+	(prefer-this-over-delegate :initarg prefer-this-over-delegate :initform nil :accessor prefer-this-over-delegate)))
+
+(defgeneric delegate-or-this (this))
+
+(defmethod delegate-or-this (this) this)
+
+(defmethod delegate-or-this ((this delegator))
+	(if (prefer-this-over-delegate this)
+		this
+		(delegator-delegate this)))
+
+; load-failure-handler
 (defclass load-failure-handler () ())
 
 (defgeneric on-load-failure (handler script semantics conditio)
@@ -72,6 +107,26 @@
 		(error (conditio)
 			(on-load-failure *load-failure-handler* path semantics
 				(make-condition 'script-load-failure :script path :cause conditio)))))
+
+; callback-load-failure-handler
+(defclass callback-load-failure-handler (load-failure-handler delegator) (
+	(on-load-failure
+		:initarg :on-load-failure
+		:initform nil
+		:accessor callback-load-failure-handler-on-load-failure)))
+
+(defmethod on-load-failure ((handler callback-load-failure-handler) script semantics conditio)
+	(let ((delegate-or (delegate-or-this handler)))
+		(with-slots (delegate on-load-failure) handler
+			(if on-load-failure
+				(funcall on-load-failure delegate-or (lambda nil (call-next-method)) script semantics conditio)
+				(on-load-failure delegate script semantics conditio)))))
+
+(defun intercept-load-failure-handler (&key load-failure prefer-this-over-delegate)
+	(setf *load-failure-handler* (make-instance 'callback-load-failure-handler
+		:delegate *load-failure-handler*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:on-load-failure load-failure)))
 
 ; prepare scripts
 
@@ -297,6 +352,94 @@
 
 (defvar *module-error-handler* nil)
 
+; callback-module-error-handler
+(defclass callback-module-error-handler (module-error-handler delegator) (
+	(on-module-header-error
+		:initarg :on-module-header-error
+		:initform nil
+		:accessor callback-module-error-handler-on-module-header-error)
+	(on-module-missing
+		:initarg :on-module-missing
+		:initform nil
+		:accessor callback-module-error-handler-on-module-missing)
+	(on-module-load-error
+		:initarg :on-module-load-error
+		:initform nil
+		:accessor callback-module-error-handler-on-module-load-error)
+	(on-module-shadow
+		:initarg :on-module-shadow
+		:initform nil
+		:accessor callback-module-error-handler-on-module-shadow)
+	(on-module-dependency-cycle
+		:initarg :on-module-dependency-cycle
+		:initform nil
+		:accessor callback-module-error-handler-on-module-dependency-cycle)
+	(on-module-did-not-load
+		:initarg :on-module-did-not-load
+		:initform nil
+		:accessor callback-module-error-handler-on-module-did-not-load)))
+
+(defmethod on-module-header-error ((handler callback-module-error-handler) script conditio)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-header-error) handler
+			(if on-module-header-error
+				(funcall on-module-header-error delegate-or (lambda nil (call-next-method)) script conditio)
+				(on-module-header-error delegate script conditio)))))
+
+(defmethod on-module-missing ((handler callback-module-error-handler) modname parent)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-missing) handler
+			(if on-module-missing
+				(funcall on-module-missing delegate-or (lambda nil (call-next-method)) modname parent)
+				(on-module-missing delegate modname parent)))))
+
+(defmethod on-module-load-error ((handler callback-module-error-handler) module body-script conditio)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-load-error) handler
+			(if on-module-load-error
+				(funcall on-module-load-error delegate-or (lambda nil (call-next-method)) module body-script conditio)
+				(on-module-load-error delegate module body-script conditio)))))
+
+(defmethod on-module-shadow ((handler callback-module-error-handler) old-module new-module)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-shadow) handler
+			(if on-module-shadow
+				(funcall on-module-shadow delegate-or (lambda nil (call-next-method)) old-module new-module)
+				(on-module-shadow delegate old-module new-module)))))
+
+(defmethod on-module-dependency-cycle ((handler callback-module-error-handler) module)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-dependency-cycle) handler
+			(if on-module-dependency-cycle
+				(funcall on-module-dependency-cycle delegate-or (lambda nil (call-next-method)) module)
+				(on-module-dependency-cycle delegate module)))))
+
+(defmethod on-module-did-not-load ((handler callback-module-error-handler) module)
+	(let ((delegate-or (delegator-delegate handler)))
+		(with-slots (delegate on-module-did-not-load) handler
+			(if on-module-did-not-load
+				(funcall on-module-did-not-load delegate-or (lambda nil (call-next-method)) module)
+				(on-module-did-not-load delegate module)))))
+
+(defun intercept-module-error-handler
+	(&key
+		header-error
+		missing
+		load-error
+		shadow
+		dependency-cycle
+		did-not-load
+		prefer-this-over-delegate)
+	(setf *module-error-handler* (make-instance 'callback-module-error-handler
+		:delegate *module-error-handler*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:on-module-header-error header-error
+		:on-module-missing missing
+		:on-module-load-error load-error
+		:on-module-shadow shadow
+		:on-module-dependency-cycle dependency-cycle
+		:on-module-did-not-load did-not-load)))
+
 ; module
 (defclass module () ())
 
@@ -339,6 +482,70 @@
 (defmethod on-module-did-not-load (handler module)
 	(warn 'module-did-not-load-warning :module module))
 
+; callback-module
+(defclass callback-module (module delegator) (
+	(module-name :initarg :module-name :initform nil :accessor callback-module-module-name)
+	(module-definition-location
+		:initarg :module-definition-location
+		:initform nil
+		:accessor callback-module-module-definition-location)
+	(module-dependencies :initarg :module-dependencies :initform nil :accessor callback-module-module-dependencies)
+	(module-should-load :initarg :module-should-load :initform nil :accessor callback-module-module-should-load)
+	(module-load :initarg :module-load :initform nil :accessor callback-module-module-load)))
+
+(defmethod module-name ((module callback-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-name) module
+			(if module-name
+				(funcall module-name delegate-or (lambda nil (call-next-method)))
+				(module-name delegate)))))
+
+(defmethod module-definition-location ((module callback-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-definition-location) module
+			(if module-definition-location
+				(funcall module-definition-location delegate-or (lambda nil (call-next-method)))
+				(module-definition-location delegate)))))
+
+(defmethod module-dependencies ((module callback-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-dependencies) module
+			(if module-dependencies
+				(funcall module-dependencies delegate-or (lambda nil (call-next-method)))
+				(module-dependencies delegate)))))
+
+(defmethod module-should-load ((module callback-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-should-load) module
+			(if module-should-load
+				(funcall module-should-load delegate-or (lambda nil (call-next-method)))
+				(module-should-load delegate)))))
+
+(defmethod module-load ((module callback-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-load) module
+			(cond
+				(module-load (funcall module-load delegate-or))
+				(delegate (module-load delegate))
+				(t (error 'missing-delegate-error :abstraction 'module :wrapper module))))))
+
+(defun wrap-module
+	(delegate &key
+		prefer-this-over-delegate
+		name
+		definition-location
+		dependencies
+		should-load
+		load)
+	(make-instance 'callback-module
+		:delegate delegate
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:module-name name
+		:module-definition-location definition-location
+		:module-dependencies dependencies
+		:module-should-load should-load
+		:module-load load))
+
 ; module-filter
 (defclass module-filter () ())
 
@@ -347,6 +554,29 @@
 
 (defvar *register-module-filter* nil)
 (defvar *found-module-header-filter* nil)
+
+; callback-module-filter
+(defclass callback-module-filter (module-filter delegator) (
+	(filter-module :initarg :filter-module :initform nil :accessor callback-module-filter-filter-module)))
+
+(defmethod filter-module ((filter callback-module-filter) module)
+	(let ((delegate-or (delegate-or-this filter)))
+		(with-slots (delegate filter-module) filter
+			(if filter-module
+				(funcall filter-module delegate-or (lambda nil (call-next-method)) module)
+				(filter-module delegate module)))))
+
+(defun intercept-register-module-filter (&key filter-module prefer-this-over-delegate)
+	(setf *register-module-filter* (make-instance 'callback-module-filter
+		:delegate *register-module-filter*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:filter-module filter-module)))
+
+(defun intercept-found-module-header-filter (&key filter-module prefer-this-over-delegate)
+	(setf *found-module-header-filter* (make-instance 'callback-module-filter
+		:delegate *found-module-header-filter*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:filter-module filter-module)))
 
 ; registry
 (defvar *module-registry* (make-hash-table :test #'equal))
@@ -523,6 +753,121 @@
 				"~A, is-loaded = ~S, target-package = ~S, dependencies = ~S, should-load = ~S, header = '~A', dir = '~A'"
 				name is-loaded target-package dependencies should-load header dir))))
 
+; callback-dir-module
+(defclass callback-dir-module (dir-module delegator) (
+	(module-name
+		:initarg :module-name
+		:initform nil
+		:accessor callback-dir-module-module-name)
+	(module-definition-location
+		:initarg :module-definition-location
+		:initform nil
+		:accessor callback-dir-module-module-definition-location)
+	(module-dependencies
+		:initarg :module-dependencies
+		:initform nil
+		:accessor callback-dir-module-module-dependencies)
+	(module-should-load
+		:initarg :module-should-load
+		:initform nil
+		:accessor callback-dir-module-module-should-load)
+	(module-load
+		:initarg :module-load
+		:initform nil
+		:accessor callback-dir-module-module-load)
+	(module-base-add-dependency
+		:initarg :module-base-add-dependency
+		:initform nil
+		:accessor callback-dir-module-module-base-add-dependency)
+	(real-module-load
+		:initarg :real-module-load
+		:initform nil
+		:accessor callback-dir-module-real-module-load)
+	(enrich-module-with-header
+		:initarg :enrich-module-with-header
+		:initform nil
+		:accessor callback-dir-module-enrich-module-with-header)
+	(dir-module-load-scripts
+		:initarg :dir-module-load-scripts
+		:initform nil
+		:accessor callback-dir-module-dir-module-load-scripts)))
+
+(defmethod module-name ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-name) module
+			(cond
+				(module-name (funcall module-name delegate-or (lambda nil (call-next-method))))
+				(delegate (module-name delegate))
+				(t (call-next-method))))))
+
+(defmethod module-definition-location ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-definition-location) module
+			(cond
+				(module-definition-location
+					(funcall module-definition-location delegate-or (lambda nil (call-next-method))))
+				(delegate (module-definition-location delegate))
+				(t (call-next-method))))))
+
+(defmethod module-dependencies ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-dependencies) module
+			(cond
+				(module-dependencies (funcall module-dependencies delegate-or (lambda nil (call-next-method))))
+				(delegate (module-dependencies delegate))
+				(t (call-next-method))))))
+
+(defmethod module-should-load ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-should-load) module
+			(cond
+				(module-should-load (funcall module-should-load delegate-or (lambda nil (call-next-method))))
+				(delegate (module-should-load delegate))
+				(t (call-next-method))))))
+
+(defmethod module-load ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-load) module
+			(cond
+				(module-load (funcall module-load delegate-or (lambda nil (call-next-method))))
+				(delegate (module-load delegate))
+				(t (call-next-method))))))
+
+(defmethod module-base-add-dependency ((module callback-dir-module) dependency)
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate module-base-add-dependency) module
+			(cond
+				(module-base-add-dependency
+					(funcall module-base-add-dependency delegate-or (lambda nil (call-next-method)) dependency))
+				(delegate (module-base-add-dependency delegate dependency))
+				(t (call-next-method))))))
+
+(defmethod real-module-load ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate real-module-load) module
+			(cond
+				(real-module-load (funcall real-module-load delegate-or (lambda nil (call-next-method))))
+				(delegate (real-module-load delegate))
+				(t (call-next-method))))))
+
+(defmethod enrich-module-with-header ((module callback-dir-module) name target-package dependencies bodies)
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate enrich-module-with-header) module
+			(cond
+				(enrich-module-with-header
+					(funcall enrich-module-with-header
+						delegate-or (lambda nil (call-next-method)) name target-package dependencies bodies))
+				(delegate (enrich-module-with-header delegate name target-package dependencies bodies))
+				(t (call-next-method))))))
+
+(defmethod dir-module-load-scripts ((module callback-dir-module))
+	(let ((delegate-or (delegate-or-this module)))
+		(with-slots (delegate dir-module-load-scripts) module
+			(cond
+				(dir-module-load-scripts (funcall dir-module-load-scripts delegate-or (lambda nil (call-next-method))))
+				(delegate (dir-module-load-scripts delegate))
+				(t (call-next-method))))))
+
 ; dir-module-creator
 (defclass dir-module-creator () ())
 
@@ -548,6 +893,26 @@
 				"Cannot use ~S as dir-path for dir-module, must be nil, a string, or a pathname" dir))))))
 
 (defvar *dir-module-creator* nil)
+
+; callback-dir-module-creator
+(defclass callback-dir-module-creator (dir-module-creator delegator) (
+	(create-dir-module
+		:initarg create-dir-module
+		:initform nil
+		:accessor callback-dir-module-creator-create-dir-module)))
+
+(defmethod create-dir-module ((creator callback-dir-module-creator) name header dir)
+	(let ((delegate-or (delegate-or-this creator)))
+		(with-slots (delegate create-dir-module) creator
+			(if create-dir-module
+				(funcall create-dir-module delegate-or (lambda nil (call-next-method)) name header dir)
+				(create-dir-module delegate name header dir)))))
+
+(defun intercept-dir-module-creator (&key create-dir-module prefer-this-over-delegate)
+	(setf *dir-module-creator* (make-instance 'create-dir-module
+		:delegate *dir-module-creator*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:create-dir-module create-dir-module)))
 
 ; dir-module-factory
 (defclass dir-module-factory () ())
@@ -584,6 +949,26 @@
 
 (defvar *dir-module-factory* nil)
 
+; callback-dir-module-factory
+(defclass callback-dir-module-factory (dir-module-factory delegator) (
+	(dir-module-from-header
+		:initarg :dir-module-from-header
+		:initform nil
+		:accessor callback-dir-module-factory-dir-module-from-header)))
+
+(defmethod dir-module-from-header ((factory callback-dir-module-factory) header-path)
+	(let ((delegate-or (delegate-or-this factory)))
+		(with-slots (delegate dir-module-from-header) factory
+			(if dir-module-from-header
+				(funcall dir-module-from-header delegate-or (lambda nil (call-next-method)) header-path)
+				(dir-module-from-header delegate header-path)))))
+
+(defun intercept-dir-module-factory (&key dir-module-from-header prefer-this-over-delegate)
+	(setf *dir-module-factory* (make-instance 'callback-dir-module-factory
+		:delegate *dir-module-factory*
+		:prefer-this-over-delegate prefer-this-over-delegate
+		:dir-module-from-header dir-module-from-header)))
+
 ; module-scanner
 (defclass module-scanner () ())
 
@@ -608,6 +993,36 @@
 			(register-module module))))
 
 (defvar *module-scanner* nil)
+
+; callback-module-scanner
+(defclass callback-module-scanner (module-scanner delegator) (
+	(scan-for-modules :initarg :scan-for-modules :initform nil :accessor callback-module-scanner-scan-for-modules)
+	(get-modules-dirs :initarg :get-modules-dirs :initform nil :accessor callback-module-scanner-get-modules-dirs)
+	(found-module-header
+		:initarg :found-module-header
+		:initform nil
+		:accessor callback-module-scanner-found-module-header)))
+
+(defmethod scan-for-modules ((scanner callback-module-scanner))
+	(let ((delegate-or (delegate-or-this scanner)))
+		(with-slots (delegate scan-for-modules) scanner
+			(if scan-for-modules
+				(funcall scan-for-modules delegate-or (lambda nil (call-next-method)))
+				(scan-for-modules delegate)))))
+
+(defmethod get-modules-dirs ((scanner callback-module-scanner))
+	(let ((delegate-or (delegate-or-this scanner)))
+		(with-slots (delegate get-modules-dirs) scanner
+			(if get-modules-dirs
+				(funcall get-modules-dirs delegate-or (lambda nil (call-next-method)))
+				(get-modules-dirs delegate)))))
+
+(defmethod found-module-header ((scanner callback-module-scanner) header)
+	(let ((delegate-or (delegate-or-this scanner)))
+		(with-slots (delegate found-module-header) scanner
+			(if found-module-header
+				(funcall found-module-header delegate-or (lambda nil (call-next-method)) header)
+				(found-module-header delegate header)))))
 
 ; flush scripts
 
