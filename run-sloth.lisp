@@ -51,6 +51,25 @@
 		(with-slots (script cause) conditio
 			(format out "script = '~A', cause = ~S" script cause))))
 
+(define-condition fallback-script-load-failure (error)
+	(
+		(script
+			:initarg :script
+			:initform (error "no :script for fallback-script-load-failure")
+			:reader fallback-script-load-failure-script)
+		(semantics
+			:initarg :semantics
+			:initform (error "no :semantics for fallback-script-load-failure")
+			:reader fallback-script-load-failure-semantics)
+		(cause :initarg :cause :initform nil :reader fallback-script-load-failure-cause)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio fallback-script-load-failure) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (script semantics cause) conditio
+			(format out "script = '~A', semantics = ~S, cause = ~S" script semantics cause))))
+
 ; misc conditions
 
 (define-condition missing-delegate-error (error)
@@ -76,7 +95,7 @@
 ; delegator
 (defclass delegator () (
 	(delegate :initarg :delegate :initform nil :accessor delegator-delegate)
-	(prefer-this-over-delegate :initarg prefer-this-over-delegate :initform nil :accessor prefer-this-over-delegate)))
+	(prefer-this-over-delegate :initarg :prefer-this-over-delegate :initform nil :accessor prefer-this-over-delegate)))
 
 (defgeneric delegate-or-this (this))
 
@@ -92,9 +111,7 @@
 
 (defgeneric on-load-failure (handler script semantics conditio)
 	(:method (handler script semantics conditio)
-		(error (format nil
-			"Fell back to condition ~S in on-load-failure for script '~A' (type ~S), handler = ~S"
-			conditio script semantics handler))))
+		(error 'fallback-script-load-failure :script script :semantics semantics :cause conditio)))
 
 (defvar *load-failure-handler* nil)
 
@@ -331,14 +348,299 @@
 		(with-slots (module) conditio
 			(format out "module = ~S" module))))
 
+(define-condition fallback-module-header-error (error)
+	(
+		(script
+			:initarg :script
+			:initform (error "no :script for fallback-module-header-error")
+			:reader fallback-module-header-error-script)
+		(cause :initarg :cause :initform nil :reader fallback-module-header-error-cause)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio fallback-module-header-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (script cause) conditio
+			(format out "script = '~A', cause = ~S" script cause))))
+
+(define-condition module-name-missing-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-name-missing-error")
+			:reader module-name-missing-error-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-name-missing-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module) conditio
+			(format out "module = ~S" module))))
+
+(define-condition registering-non-module-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for registering-non-module-error")
+			:reader registering-non-module-error-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio registering-non-module-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module) conditio
+			(format out "module = ~S" module))))
+
+(define-condition module-with-non-string-name-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for module-with-non-string-name-error")
+			:reader module-with-non-string-name-error-module)
+		(name
+			:initarg :name
+			:initform (error "no :name for module-with-non-string-name-error")
+			:reader module-with-non-string-name-error-name)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio module-with-non-string-name-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module name) conditio
+			(format out "module = ~S, name = ~S" module name))))
+
+(define-condition trying-to-load-non-module-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for trying-to-load-non-module-error")
+			:reader trying-to-load-non-module-error-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio trying-to-load-non-module-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module) conditio
+			(format out "module = ~S" module))))
+
+(define-condition trying-to-add-nameless-dependency-error (error)
+	(
+		(parent
+			:initarg :parent
+			:initform (error "no :parent for trying-to-add-nameless-dependency-error")
+			:reader trying-to-add-nameless-dependency-error-parent)
+		(child
+			:initarg :child
+			:initform (error "no :child for trying-to-add-nameless-dependency-error")
+			:reader trying-to-add-nameless-dependency-error-child)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio trying-to-add-nameless-dependency-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (parent child) conditio
+			(format out "parent = ~S, child = ~S" parent child))))
+
+(define-condition trying-to-add-non-module-dependency-error (error)
+	(
+		(parent
+			:initarg :parent
+			:initform (error "no :parent for trying-to-add-non-module-dependency-error")
+			:reader trying-to-add-non-module-dependency-error-parent)
+		(child
+			:initarg :child
+			:initform (error "no :child for trying-to-add-non-module-dependency-error")
+			:reader trying-to-add-non-module-dependency-error-child)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio trying-to-add-non-module-dependency-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (parent child) conditio
+			(format out "parent = ~S, child = ~S" parent child))))
+
+(define-condition trying-to-enrich-non-enrichable-module-with-header-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for trying-to-enrich-non-enrichable-module-with-header-error")
+			:reader trying-to-enrich-non-enrichable-module-with-header-error-module)
+		(name
+			:initarg :module
+			:initform nil
+			:reader trying-to-enrich-non-enrichable-module-with-header-error-name)
+		(target-package
+			:initarg :target-package
+			:initform nil
+			:reader trying-to-enrich-non-enrichable-module-with-header-error-target-package)
+		(dependencies
+			:initarg :dependencies
+			:initform nil
+			:reader trying-to-enrich-non-enrichable-module-with-header-error-dependencies)
+		(bodies
+			:initarg :bodies
+			:initform nil
+			:reader trying-to-enrich-non-enrichable-module-with-header-error-bodies)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio trying-to-enrich-non-enrichable-module-with-header-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module name target-package dependencies bodies) conditio
+			(format out
+				"module = ~S, name = ~S, target-package = ~S, dependencies = ~S, bodies = ~S"
+				module name target-package dependencies bodies))))
+
+(define-condition enrich-with-bad-name-error (error)
+	(
+		(module
+			:initarg :module
+			:initform (error "no :module for enrich-with-bad-name-error")
+			:reader enrich-with-bad-name-error-module)
+		(name
+			:initarg :name
+			:initform (error "no :name for enrich-with-bad-name-error")
+			:reader enrich-with-bad-name-error-name)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio enrich-with-bad-name-error) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (module name) conditio
+			(format out "module = ~S, name = ~S" module name))))
+
+(define-condition illegal-target-package-for-enrich-module-with-header (error)
+	(
+		(target-package
+			:initarg :target-package
+			:initform (error "no :target-package for illegal-target-package-for-enrich-module-with-header")
+			:reader illegal-target-package-for-enrich-module-with-header-target-package)
+		(module
+			:initarg :module
+			:initform (error "no :module for illegal-target-package-for-enrich-module-with-header")
+			:reader illegal-target-package-for-enrich-module-with-header-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio illegal-target-package-for-enrich-module-with-header) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (target-package module) conditio
+			(format out "target-package = ~S, module = ~S" target-package module))))
+
+(define-condition illegal-dir-for-enrich-module-with-header (error)
+	(
+		(dir
+			:initarg :dir
+			:initform (error "no :dir for illegal-dir-for-enrich-module-with-header")
+			:reader illegal-dir-for-enrich-module-with-header-dir)
+		(module
+			:initarg :module
+			:initform (error "no :module for illegal-dir-for-enrich-module-with-header")
+			:reader illegal-dir-for-enrich-module-with-header-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio illegal-dir-for-enrich-module-with-header) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (dir module) conditio
+			(format out "dir = ~S, module = ~S" dir module))))
+
+(define-condition illegal-body-for-enrich-module-with-header (error)
+	(
+		(body
+			:initarg :body
+			:initform (error "no :body for illegal-body-for-enrich-module-with-header")
+			:reader illegal-body-for-enrich-module-with-header-body)
+		(module
+			:initarg :module
+			:initform (error "no :module for illegal-body-for-enrich-module-with-header")
+			:reader illegal-body-for-enrich-module-with-header-module)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio illegal-body-for-enrich-module-with-header) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (body module) conditio
+			(format out "body = ~S, module = ~S" body module))))
+
+(define-condition illegal-arg-for-create-dir-module (error)
+	(
+		(name
+			:initarg :name
+			:initform (error "no :name for illegal-arg-for-create-dir-module")
+			:reader illegal-arg-for-create-dir-module-name)
+		(header
+			:initarg :header
+			:initform (error "no :header for illegal-arg-for-create-dir-module")
+			:reader illegal-arg-for-create-dir-module-header)
+		(dir
+			:initarg :dir
+			:initform (error "no :dir for illegal-arg-for-create-dir-module")
+			:reader illegal-arg-for-create-dir-module-dir)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio illegal-arg-for-create-dir-module) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (name header dir) conditio
+			(format out "name = ~S, header = ~S, dir = ~S" name header dir))))
+
+(define-condition illegal-name-for-create-dir-module (illegal-arg-for-create-dir-module) ())
+
+(define-condition illegal-header-for-create-dir-module (illegal-arg-for-create-dir-module) ())
+
+(define-condition illegal-dir-for-create-dir-module (illegal-arg-for-create-dir-module) ())
+
+(define-condition illegal-header-for-dir-module-from-header (error)
+	(
+		(header
+			:initarg :header
+			:initform (error "no :header for illegal-header-for-dir-module-from-header")
+			:reader illegal-header-for-dir-module-from-header-header)
+		(factory
+			:initarg :factory
+			:initform (error "no :factory for illegal-header-for-dir-module-from-header")
+			:reader illegal-header-for-dir-module-from-header-factory)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio illegal-header-for-dir-module-from-header) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (header factory) conditio
+			(format out "header = ~S, factory = ~S" header factory))))
+
+(define-condition no-module-returned-from-create-dir-module (error)
+	(
+		(creator
+			:initarg :creator
+			:initform (error "no :creator for no-module-returned-from-create-dir-module")
+			:reader no-module-returned-from-create-dir-module-creator)
+		(name
+			:initarg :name
+			:initform (error "no :name for no-module-returned-from-create-dir-module")
+			:reader no-module-returned-from-create-dir-module-name)
+		(header
+			:initarg :header
+			:initform (error "no :header for no-module-returned-from-create-dir-module")
+			:reader no-module-returned-from-create-dir-module-header)
+		(dir
+			:initarg :dir
+			:initform (error "no :dir for no-module-returned-from-create-dir-module")
+			:reader no-module-returned-from-create-dir-module-dir)
+	)
+	(:report print-object))
+
+(defmethod print-object ((conditio no-module-returned-from-create-dir-module) out)
+	(print-unreadable-object (conditio out :type t)
+		(with-slots (creator name header dir) conditio
+			(format out "creator = ~S, name = ~S, header = ~S, dir = ~S" creator name header dir))))
+
 ; module-error-handler
 (defclass module-error-handler () ())
 
 (defgeneric on-module-header-error (handler script conditio)
 	(:method (handler script conditio)
-		(error (format nil
-			"Fell back to condition ~S in on-module-header-error for script '~A', handler = ~S"
-			conditio script handler))))
+		(error 'fallback-module-header-error :script script :cause conditio)))
 
 (defgeneric on-module-missing (handler modname parent))
 
@@ -445,7 +747,7 @@
 
 (defgeneric module-name (module)
 	(:method (module)
-		(error (format nil "Module ~S does not provide a name" module))))
+		(error 'module-name-missing-error :module module)))
 
 (defgeneric module-definition-location (module)
 	(:method ((module module)) nil))
@@ -583,14 +885,14 @@
 
 (defun register-module (module)
 	(if (not (typep module 'module))
-		(error (format nil "Cannot register module ~S, as it is not a module" module)))
+		(error 'registering-non-module-error :module module))
 	(let ((filtered (filter-module *register-module-filter* module)))
 		(if filtered
 			(setf module filtered)
 			(return-from register-module)))
 	(let ((name (module-name module)))
 		(if (not (stringp name))
-			(error (format nil "Module ~S has non-string name: ~S" module name)))
+			(error 'module-with-non-string-name-error :module module :name name))
 		(let ((old-module (gethash name *module-registry*)))
 			(if old-module
 				(on-module-shadow *module-error-handler* old-module module)
@@ -607,7 +909,7 @@
 
 (defun try-load-module (module impl)
 	(if (not (typep module 'module))
-		(error (format nil "Cannot load ~S, as it is not a module" module)))
+		(error 'trying-to-load-non-module-error :module module))
 	(if (member module *modules-currently-loading* :test #'eq)
 		(progn
 			(on-module-dependency-cycle *module-error-handler* module)
@@ -646,15 +948,9 @@
 			((typep dependency 'module)
 				(let ((name (module-name module)))
 					(if (not name)
-						(error (format nil
-							"Cannot add module ~A as dependency of ~A, as the former has no name"
-							(module-name-and-location dependency)
-							(module-name-and-location module))))
+						(error 'trying-to-add-nameless-dependency-error :parent module :child dependency))
 					(setf dependency name)))
-			(t (error (format nil
-				"Cannot add dependency of module ~A, as it is not a module designator: ~S"
-				(module-name-and-location module)
-				dependency))))
+			(t (error 'trying-to-add-non-module-dependency-error :parent module :child dependency)))
 		(pushnew dependency (module-base-dependencies module) :test #'equal)))
 
 (defgeneric real-module-load (module))
@@ -670,9 +966,12 @@
 (defgeneric enrich-module-with-header (module name target-package dependencies bodies))
 
 (defmethod enrich-module-with-header ((module header-enrichable-module) name target-package dependencies bodies)
-	(error (format nil
-		"Attempted to enrich module ~A with header info, but it does not define this (is a ~S)"
-		(module-name-and-location module) (type-of module))))
+	(error 'trying-to-enrich-non-enrichable-module-with-header-error
+		:module module
+		:name name
+		:target-package target-package
+		:dependencies dependencies
+		:bodies bodies))
 
 (defmacro defmodule (name &key target-package depends-on scripts)
 	`(enrich-module-with-header *currently-loading-module* ',name ',target-package ',depends-on ',scripts))
@@ -720,18 +1019,19 @@
 		(setf (slot-value module 'name) (cond
 			((stringp name) name)
 			((symbolp name) (string-downcase (symbol-name name)))
-			(t (error (format nil "Cannot use ~S as name for dir-module, must be string or symbol" name))))))
+			(t (error 'enrich-with-bad-name-error :module module :name name)))))
 	(if target-package
 		(setf (slot-value module 'target-package) (cond
 			((stringp target-package) (make-symbol (string-upcase target-package)))
 			((symbolp target-package) target-package)
-			(t (error (format nil
-				"Cannot use ~S as target-package for dir-module, must be string or symbol" target-package))))))
+			(t (error 'illegal-target-package-for-enrich-module-with-header
+				:target-package target-package
+				:module module)))))
 	(loop for dep in dependencies do
 		(if dep (module-base-add-dependency module dep)))
 	(let ((dir (dir-module-dir module)))
 		(if (not (stringp dir))
-			(error (format nil "Directory of dir-module is not a string: ~S" dir)))
+			(error 'illegal-dir-for-enrich-module-with-header :dir dir :module module))
 		(setf (dir-module-scripts module)
 			(loop for body in bodies
 				when body
@@ -739,10 +1039,7 @@
 					((stringp body) body)
 					((pathnamep body) (uiop:native-namestring body))
 					((symbolp body) (string-downcase (symbol-name body)))
-					(t (error (format nil
-						"Cannot add ~S as body of dir-module ~A, must be nil, a string, a pathname, or a symbol"
-						body
-						(module-name-and-location module)))))))))
+					(t (error 'illegal-body-for-enrich-module-with-header :body body :module module)))))))
 	module)
 
 (defmethod print-object ((module dir-module) out)
@@ -878,26 +1175,24 @@
 		:name (cond
 			((stringp name) name)
 			((symbolp name) (string-downcase (symbol-name name)))
-			(t (error (format nil "Cannot use ~S as name for dir-module, must be string or symbol" name))))
+			(t (error 'illegal-name-for-create-dir-module :name name :header header :dir dir)))
 		:header (cond
 			((stringp header) header)
 			((pathnamep header) (uiop:native-namestring header))
-			(t (error (format nil
-				"Cannot use ~S as header-path for dir-module, must be a string or pathname" header))))
+			(t (error 'illegal-header-for-create-dir-module :name name :header header :dir dir)))
 		:dir (cond
 			((null dir) (uiop:native-namestring (uiop:pathname-directory-pathname
 				(if (stringp header) (pathname header) header))))
 			((stringp dir) dir)
 			((pathnamep dir) (uiop:native-namestring dir))
-			(t (error (format nil
-				"Cannot use ~S as dir-path for dir-module, must be nil, a string, or a pathname" dir))))))
+			(t (error 'illegal-dir-for-create-dir-module :name name :header header :dir dir)))))
 
 (defvar *dir-module-creator* nil)
 
 ; callback-dir-module-creator
 (defclass callback-dir-module-creator (dir-module-creator delegator) (
 	(create-dir-module
-		:initarg create-dir-module
+		:initarg :create-dir-module
 		:initform nil
 		:accessor callback-dir-module-creator-create-dir-module)))
 
@@ -925,9 +1220,7 @@
 			(header-pathname (cond
 				((stringp header-path) (pathname header-path))
 				((pathnamep header-path) header-path)
-				(t (error (format nil
-					"Cannot use ~S as header path for dir-module, must be a string or pathname"
-					header-path)))))
+				(t (error 'illegal-header-for-dir-module-from-header :header header-path :factory factory))))
 			(full-header (uiop:ensure-absolute-pathname header-pathname (uiop:getcwd)))
 			(full-dir (uiop:pathname-directory-pathname full-header))
 			(native-header (uiop:native-namestring full-header))
@@ -937,8 +1230,11 @@
 			(module (create-dir-module *dir-module-creator* name native-header native-dir))
 		)
 		(unless module
-			(error (format nil
-				"No module returned from create-dir-module (*dir-module-creator* = ~S)" *dir-module-creator*)))
+			(error 'no-module-returned-from-create-dir-module
+				:creator factory
+				:name name
+				:header native-header
+				:dir native-dir))
 		(handler-case
 			(let ((*currently-loading-module* module) (*current-script-semantics* :module-header))
 				(load full-header))
