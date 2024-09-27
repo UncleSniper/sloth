@@ -106,6 +106,15 @@
 		this
 		(delegator-delegate this)))
 
+; misc condition stuff
+
+; Credit where credit is due: This is copy-and-pasted from the Common Lisp Cookbook
+; (+/- the 'eval' part).
+(defun prompt-new-value (prompt)
+	(format *query-io* "~S: " prompt)
+	(force-output *query-io*)
+	(list (eval (read *query-io*))))
+
 ; load-failure-handler
 (defclass load-failure-handler () ())
 
@@ -122,8 +131,14 @@
 		(let ((*current-script-semantics* semantics))
 			(load path :if-does-not-exist (not allow-not-exist)))
 		(error (conditio)
-			(on-load-failure *load-failure-handler* path semantics
-				(make-condition 'script-load-failure :script path :cause conditio)))))
+			(restart-case
+				(on-load-failure *load-failure-handler* path semantics
+					(make-condition 'script-load-failure :script path :cause conditio))
+				(skip-script () :report "Skip this script" nil)
+				(use-new-path (new-path)
+					:report "Enter path for replacement script"
+					:interactive (lambda nil (prompt-new-value "Form returning replacement script"))
+					(load-script new-path allow-not-exist semantics))))))
 
 ; callback-load-failure-handler
 (defclass callback-load-failure-handler (load-failure-handler delegator) (
@@ -908,14 +923,21 @@
 	(error 'module-dependency-cycle-error :module module :cycle *modules-currently-loading*))
 
 (defun try-load-module (module impl)
-	(if (not (typep module 'module))
-		(error 'trying-to-load-non-module-error :module module))
-	(if (member module *modules-currently-loading* :test #'eq)
+	(restart-case
 		(progn
-			(on-module-dependency-cycle *module-error-handler* module)
-			nil)
-		(let ((*modules-currently-loading* (cons module *modules-currently-loading*)))
-			(funcall impl module))))
+			(if (not (typep module 'module))
+				(error 'trying-to-load-non-module-error :module module))
+			(if (member module *modules-currently-loading* :test #'eq)
+				(progn
+					(on-module-dependency-cycle *module-error-handler* module)
+					nil)
+				(let ((*modules-currently-loading* (cons module *modules-currently-loading*)))
+					(funcall impl module))))
+		(skip-module (&optional result) :report "Skip this module" result)
+		(use-new-module (new-module)
+			:report "Enter expression for replacement module object"
+			:interactive (lambda nil (prompt-new-value "Form returning replacement module"))
+			(try-load-module new-module impl))))
 
 (defun load-module-dependencies (module)
 	(loop for depname in (module-dependencies module) do
@@ -993,25 +1015,43 @@
 
 (defvar *module-body-target-package* nil)
 
+(defun dir-module-load-single-script (module script)
+	(if script
+		(handler-case
+			(let
+				(
+					(*currently-loading-module* module)
+					(*current-script-semantics* :module-body)
+					(*package* (or
+						(let ((target-package (module-base-target-package module)))
+							(if target-package
+								(find-package target-package)))
+						*module-body-target-package*
+						(find-package '#:common-lisp-user)))
+				)
+				(load script)
+				:continue)
+			(error (conditio)
+				(restart-case
+					(progn
+						(on-module-load-error *module-error-handler* module script conditio)
+						(return-from dir-module-load-single-script :return-nil))
+					(skip-script () :report "Skip this script" :continue)
+					(skip-remaining-scripts () :report "Skip this script and the rest in this module" :return-t)
+					(use-new-path (new-path)
+						:report "Enter path for replacement script"
+						:interactive (lambda nil (prompt-new-value "Form returning replacement script"))
+						(dir-module-load-single-script module new-path)))))
+		:continue))
+
 (defmethod dir-module-load-scripts ((module dir-module))
 	(loop for script in (dir-module-scripts module) do
-		(if script
-			(handler-case
-				(let
-					(
-						(*currently-loading-module* module)
-						(*current-script-semantics* :module-body)
-						(*package* (or
-							(let ((target-package (module-base-target-package module)))
-								(if target-package
-									(find-package target-package)))
-							*module-body-target-package*
-							(find-package '#:common-lisp-user)))
-					)
-					(load script))
-				(error (conditio)
-					(on-module-load-error *module-error-handler* module script conditio)
-					(return-from dir-module-load-scripts)))))
+		(let ((action (dir-module-load-single-script module script)))
+			(cond
+				((eq action :continue) nil)
+				((eq action :return-nil) (return-from dir-module-load-scripts))
+				((eq action :return-t) (return-from dir-module-load-scripts t))
+				(t (error (format nil "Unrecognized result from dir-module-load-single-script: ~S" action))))))
 	t)
 
 (defmethod enrich-module-with-header ((module dir-module) name target-package dependencies bodies)
@@ -1214,6 +1254,29 @@
 
 (defgeneric dir-module-from-header (factory header-path))
 
+(defun load-module-header (factory module full-header native-header)
+	(handler-case
+		(let ((*currently-loading-module* module) (*current-script-semantics* :module-header))
+			(load full-header)
+			module)
+		(error (conditio)
+			(restart-case
+				(on-module-header-error *module-error-handler* native-header
+					(make-condition 'module-header-error :module module :cause conditio))
+				(skip-header () :report "Skip this header script" module)
+				(skip-module () :report "Skip this module" nil)
+				(use-new-path (new-path)
+					:report "Enter path for replacement header script"
+					:interactive (lambda nil (prompt-new-value "Form returning replacement header script"))
+					(cond
+						((pathnamep new-path) nil)
+						((stringp new-path)
+							(setf new-path (pathname new-path)))
+						(t (error 'illegal-header-for-dir-module-from-header :header new-path :factory factory)))
+					(setf full-header (uiop:ensure-absolute-pathname new-path (uiop:getcwd)))
+					(setf native-header (uiop:native-namestring full-header))
+					(load-module-header factory module full-header native-header))))))
+
 (defmethod dir-module-from-header (factory header-path)
 	(let*
 		(
@@ -1235,13 +1298,7 @@
 				:name name
 				:header native-header
 				:dir native-dir))
-		(handler-case
-			(let ((*currently-loading-module* module) (*current-script-semantics* :module-header))
-				(load full-header))
-			(error (conditio)
-				(on-module-header-error *module-error-handler* native-header
-					(make-condition 'module-header-error :module module :cause conditio))))
-		module))
+		(load-module-header factory module full-header native-header)))
 
 (defvar *dir-module-factory* nil)
 
